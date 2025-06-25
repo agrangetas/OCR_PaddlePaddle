@@ -93,8 +93,8 @@ RUN mkdir -p /app/models/iopath_cache \
 RUN rm -rf /root/.torch /root/.cache /root/.huggingface
 
 # Ajouter modèle detectron2 personnalisé
-RUN mkdir -p /app/models/layoutparser
-COPY models/layoutparser/model_final.pth /app/models/layoutparser/
+#RUN mkdir -p /app/models/layoutparser
+#COPY models/layoutparser/model_final.pth /app/models/layoutparser/
 
 # Exposer le port de JupyterLab
 EXPOSE 8888

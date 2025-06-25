@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile.jupyter
     container_name: OCR-jupyter
     ports:
-      - "8882:8888"
+      - "8883:8888"
     volumes:
       - ./notebooks:/app/notebooks
       - ./src:/app/src

@@ -42,6 +42,8 @@ layoutparser[layoutmodels,tesseract,table]
 torchvision==0.15.2
 torch==2.0.1
 
+matplotlib==3.9.4
+
 # --- PaddleOCR 3.0.0 (installé séparément dans le Dockerfile) ---
 # paddlepaddle==3.0.0
 # paddleocr==3.0.0  
