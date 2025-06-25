@@ -1,0 +1,49 @@
+# Dépendances pour la gestion de base de données PostgreSQL
+psycopg2-binary==2.9.7
+
+# Manipulation de données - versions compatibles avec PaddleX 3.0.0
+pandas==1.5.3
+numpy==1.24.4
+pysolr==3.10.0
+scikit-learn==1.3.2
+
+# Requêtes HTTP pour l'API d'embeddings
+requests==2.31.0
+
+# Logging avancé (optionnel)
+loguru==0.7.2
+
+# Jupyter pour les notebooks
+jupyter==1.0.0
+ipykernel==6.25.2
+
+# Outils de développement
+python-dotenv==1.0.0
+
+# Validation de données (optionnel)
+pydantic==2.4.2
+
+# Tests (optionnel)
+pytest==7.4.2
+pytest-cov==4.1.0
+
+# --- OCR / Vision ---
+pytesseract==0.3.10
+Pillow==10.3.0
+# OpenCV - utiliser opencv-contrib-python pour compatibilité avec PaddleOCR
+opencv-contrib-python==4.10.0.84
+
+# --- LayoutParser + modèles PubLayNet + TableOCR ---
+layoutparser==0.3.4
+layoutparser[layoutmodels,tesseract,table]
+#detectron2==0.6 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu113/torch2.0/index.html
+
+# Torch (nécessaire pour layoutparser)
+torchvision==0.15.2
+torch==2.0.1
+
+# --- PaddleOCR 3.0.0 (installé séparément dans le Dockerfile) ---
+# paddlepaddle==3.0.0
+# paddleocr==3.0.0  
+# paddlex[ocr]==3.0.0
+# tokenizers==0.19.1 (installé automatiquement par paddlex)

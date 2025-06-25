@@ -1,0 +1,103 @@
+# Dockerfile.jupyter
+FROM python:3.9
+
+# Installer les dépendances système + Tesseract
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    autoconf \
+    automake \
+    libtool \
+    pkg-config \
+    build-essential \
+    ca-certificates \
+    python3-dev \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-fra \
+    libleptonica-dev \
+    libtesseract-dev \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxrender1 \
+    libxext6 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Créer les dossiers de travail
+WORKDIR /app
+RUN mkdir -p /app/logs /app/src /app/notebooks
+
+# Copier les requirements et config
+COPY requirements.txt /app/
+COPY .env /app/
+COPY config.py /app/
+
+# Mettre à jour pip, setuptools et wheel en premier
+RUN python -m pip install --upgrade pip setuptools wheel
+
+# Installer JupyterLab et requests
+RUN pip install --no-cache-dir jupyterlab requests
+
+# Installer les dépendances depuis requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Installer detectron2 (nécessite torch qui est maintenant installé)
+#RUN git clone https://github.com/facebookresearch/detectron2.git \
+#       && pip install --no-cache-dir -e detectron2
+
+# Installer PaddlePaddle 3.0.0 depuis le dépôt officiel chinois
+RUN pip install paddlepaddle==3.0.0 -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
+
+# Installer PaddleOCR 3.0.0 avec dépendances manuelles pour éviter les conflits
+RUN pip install --no-cache-dir chardet colorlog prettytable py-cpuinfo \
+    && pip install --no-cache-dir ruamel.yaml ujson einops ftfy GPUtil \
+    && pip install --no-cache-dir regex tiktoken \
+    && pip install --no-cache-dir imagesize premailer shapely \
+    && pip install --no-cache-dir paddleocr==3.0.0 --no-deps \
+    && pip install --no-cache-dir "paddlex[ocr]==3.0.0"
+
+# Copier les fichiers source
+COPY src/ /app/src/
+
+# Donner les bons droits aux logs
+RUN chmod -R 777 /app/logs
+
+# Variables d'environnement
+ENV PYTHONPATH=/app:/app/src
+ENV LOG_LEVEL=INFO
+ENV LOG_FILE=/app/logs/jupyter.log
+
+# Variables d'environnement pour forcer les chemins de cache
+ENV HOME=/app
+ENV IOPATH_CACHE_DIR=/app/models/iopath_cache
+ENV TORCH_HOME=/app/models/torch_cache
+ENV TRANSFORMERS_CACHE=/app/models/huggingface
+ENV HF_HOME=/app/models/huggingface
+
+# Variables d'environnement pour PaddleOCR/PaddleX cache persistant
+ENV PADDLE_PDX_MODEL_SOURCE=HuggingFace
+ENV PADDLEHUB_HOME=/app/models/paddlehub
+ENV PADDLEX_HOME=/app/models/paddlex_cache
+ENV XDG_CACHE_HOME=/app/models
+
+# Créer les dossiers de cache
+RUN mkdir -p /app/models/iopath_cache \
+    && mkdir -p /app/models/torch_cache \
+    && mkdir -p /app/models/huggingface \
+    && mkdir -p /app/models/paddlehub \
+    && mkdir -p /app/models/paddlex_cache \
+    && mkdir -p /app/models/.cache
+
+# Nettoyage des caches inutiles (root)
+RUN rm -rf /root/.torch /root/.cache /root/.huggingface
+
+# Ajouter modèle detectron2 personnalisé
+RUN mkdir -p /app/models/layoutparser
+COPY models/layoutparser/model_final.pth /app/models/layoutparser/
+
+# Exposer le port de JupyterLab
+EXPOSE 8888
+
+# Lancer JupyterLab sans mot de passe ni token
+CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--allow-root", "--NotebookApp.token=''", "--NotebookApp.password=''"]

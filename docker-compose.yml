@@ -1,0 +1,36 @@
+services:
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile.jupyter
+    container_name: OCR-jupyter
+    ports:
+      - "8882:8888"
+    volumes:
+      - ./notebooks:/app/notebooks
+      - ./src:/app/src
+      - ./logs:/app/logs
+      - ./data:/app/data             # Pour stocker tes documents/images
+      - ./models:/app/models         # Pour sauvegarder les modèles layoutparser ou checkpoints OCR
+      - ./models/iopath_cache:/app/models/iopath_cache
+      - ./models/torch_cache:/app/models/torch_cache
+      - ./models/transformers_cache:/app/models/transformers_cache
+      - ./models/paddlehub:/app/models/paddlehub           # Cache PaddleHub
+      - ./models/paddlex_cache:/app/models/paddlex_cache   # Cache PaddleX
+      - ./models/.cache:/app/models/.cache                 # Cache général XDG
+      - ./output:/app/output_parts 
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - LOG_FILE=/app/logs/jupyter.log
+    deploy:
+      resources:
+        limits:
+          memory: 28G
+        reservations:
+          memory: 4G
+    stdin_open: true
+    tty: true
+
+
+
