@@ -8,26 +8,50 @@ Ce module contient uniquement les fonctions essentielles pour :
 3. Placer les textes OCR dans les cellules
 4. Visualiser le résultat final  
 5. Exporter en HTML avec rowspan/colspan
+6. Sauvegarder en fichiers HTML/Markdown avec encodage UTF-8
+
+Fonctionnalités avancées :
+- Complétion automatique des cellules vides
+- Gestion intelligente de l'alignement des textes
+- Échappement des caractères spéciaux (UTF-8)
+- Options de diagnostic pour les textes non matchés
 
 Utilisation simple depuis un notebook :
 ```python
 from src.utils_new import *
 
-# 1. Extraire la structure du tableau
-table_structure = extract_table_structure(layout_boxes)
+# 1. Extraire la structure du tableau (avec complétion automatique des cellules vides)
+table_structure = extract_table_structure(layout_boxes, fill_empty_cells=True)
 
-# 2. Visualiser la structure
+# 2. Visualiser la structure (les cellules auto-générées apparaissent en gris)
 plot_table_structure(table_structure)
 
-# 3. Placer les textes OCR
-filled_structure = assign_ocr_to_structure(table_structure, rec_boxes, rec_texts)
+# 3. Placer les textes OCR (avec option force pour placer tous les textes)
+filled_structure = assign_ocr_to_structure(
+    table_structure, rec_boxes, rec_texts, force_assignment=True
+)
 
 # 4. Visualiser le résultat
 plot_final_result(filled_structure)
 
-# 5. Exporter en HTML
-html_output = export_to_html(filled_structure)
+# 5. Exporter en HTML (avec ou sans couleurs pour les cellules fusionnées)
+html_output = export_to_html(filled_structure, highlight_merged=True)
+
+# 6. Sauvegarder le HTML dans un fichier
+save_html_to_file(html_output, "tableau.html")
+
+# 7. Exporter en Markdown avec alignement et fusions
+markdown_output = export_to_markdown(filled_structure, "Mon Tableau")
+print(markdown_output)
+
+# 8. Sauvegarder le Markdown dans un fichier
+save_markdown_to_file(markdown_output, "tableau.md")
+
+# OU sans couleurs :
+html_simple = export_to_html(filled_structure, highlight_merged=False)
 ```
+
+Note: Toutes les fonctions gèrent correctement l'encodage UTF-8 et échappent les caractères spéciaux.
 """
 
 import numpy as np
@@ -55,6 +79,7 @@ class TableCell:
         self.col_span = col_span
         self.texts = []  # Liste des textes OCR assignés
         self.final_text = ""  # Texte final ordonné
+        self.is_auto_filled = False  # Marque si la cellule a été auto-générée
         
     def center(self) -> Tuple[float, float]:
         return ((self.x1 + self.x2) / 2, (self.y1 + self.y2) / 2)
@@ -88,13 +113,15 @@ class TableCell:
 
 # === FONCTION 1 : EXTRAIRE LA STRUCTURE DU TABLEAU ===
 
-def extract_table_structure(layout_boxes: List[Dict], tolerance: float = 10) -> List[TableCell]:
+def extract_table_structure(layout_boxes: List[Dict], tolerance: float = 10, 
+                            fill_empty_cells: bool = True) -> List[TableCell]:
     """
     Extrait la structure du tableau à partir des boxes de layout.
     
     Args:
         layout_boxes: Liste des boxes de layout (format PaddleOCR)
         tolerance: Tolérance pour détecter les alignements
+        fill_empty_cells: Si True, complète automatiquement les espaces vides
         
     Returns:
         Liste des cellules du tableau avec rowspan/colspan
@@ -127,7 +154,12 @@ def extract_table_structure(layout_boxes: List[Dict], tolerance: float = 10) -> 
         cell = TableCell(x1, y1, x2, y2, row_start, col_start, row_span, col_span)
         table_cells.append(cell)
     
-    return table_cells
+    # Compléter les espaces vides avec des cellules vides (si demandé)
+    if fill_empty_cells:
+        complete_cells = _fill_empty_cells(table_cells, row_lines, col_lines)
+        return complete_cells
+    else:
+        return table_cells
 
 
 def _detect_grid_lines(cells_coords: List[List[float]], direction: str, tolerance: float) -> List[float]:
@@ -182,6 +214,55 @@ def _find_grid_position(start: float, end: float, grid_lines: List[float], toler
     return start_idx, end_idx
 
 
+def _fill_empty_cells(existing_cells: List[TableCell], row_lines: List[float], col_lines: List[float]) -> List[TableCell]:
+    """
+    Complète les espaces vides du tableau avec des cellules vides.
+    
+    Args:
+        existing_cells: Cellules déjà détectées
+        row_lines: Lignes horizontales de la grille
+        col_lines: Lignes verticales de la grille
+    
+    Returns:
+        Liste complète des cellules (existantes + nouvelles vides)
+    """
+    if not existing_cells or len(row_lines) < 2 or len(col_lines) < 2:
+        return existing_cells
+    
+    # Créer une grille pour marquer les zones occupées
+    n_rows = len(row_lines) - 1
+    n_cols = len(col_lines) - 1
+    occupied_grid = [[False for _ in range(n_cols)] for _ in range(n_rows)]
+    
+    # Marquer les zones occupées par les cellules existantes
+    for cell in existing_cells:
+        for r in range(cell.row_start, cell.row_start + cell.row_span):
+            for c in range(cell.col_start, cell.col_start + cell.col_span):
+                if 0 <= r < n_rows and 0 <= c < n_cols:
+                    occupied_grid[r][c] = True
+    
+    # Créer les cellules vides pour combler les espaces
+    complete_cells = existing_cells.copy()
+    
+    for row in range(n_rows):
+        for col in range(n_cols):
+            if not occupied_grid[row][col]:
+                # Créer une cellule vide pour cette position
+                x1 = col_lines[col]
+                y1 = row_lines[row]
+                x2 = col_lines[col + 1]
+                y2 = row_lines[row + 1]
+                
+                empty_cell = TableCell(x1, y1, x2, y2, row, col, 1, 1)
+                empty_cell.is_auto_filled = True  # Marquer comme cellule auto-générée
+                complete_cells.append(empty_cell)
+                
+                # Marquer cette position comme occupée
+                occupied_grid[row][col] = True
+    
+    return complete_cells
+
+
 # === FONCTION 2 : VISUALISER LA STRUCTURE ===
 
 def plot_table_structure(table_structure: List[TableCell], 
@@ -215,15 +296,29 @@ def plot_table_structure(table_structure: List[TableCell],
     
     # Dessiner chaque cellule
     for i, cell in enumerate(table_structure):
+        # Différencier les cellules détectées des cellules auto-générées
+        if getattr(cell, 'is_auto_filled', False):
+            # Cellule auto-générée (vide)
+            edgecolor = 'gray'
+            facecolor = 'lightgray'
+            textcolor = 'gray'
+            alpha = 0.2
+        else:
+            # Cellule détectée par le layout
+            edgecolor = 'blue'
+            facecolor = 'lightblue'
+            textcolor = 'darkblue'
+            alpha = 0.3
+        
         # Rectangle de la cellule
         rect = patches.Rectangle(
             (cell.x1, cell.y1), 
             cell.x2 - cell.x1, 
             cell.y2 - cell.y1,
             linewidth=2, 
-            edgecolor='blue', 
-            facecolor='lightblue',
-            alpha=0.3
+            edgecolor=edgecolor, 
+            facecolor=facecolor,
+            alpha=alpha
         )
         ax.add_patch(rect)
         
@@ -232,13 +327,25 @@ def plot_table_structure(table_structure: List[TableCell],
         info_text = f"({cell.row_start},{cell.col_start})\n{cell.row_span}×{cell.col_span}"
         ax.text(center_x, center_y, info_text, 
                 ha='center', va='center', 
-                fontsize=10, color='darkblue', 
+                fontsize=10, color=textcolor, 
                 bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.9))
     
-    ax.set_title(f'Structure du tableau détectée ({len(table_structure)} cellules)')
+    # Statistiques des cellules
+    detected_cells = len([cell for cell in table_structure if not getattr(cell, 'is_auto_filled', False)])
+    auto_filled_cells = len([cell for cell in table_structure if getattr(cell, 'is_auto_filled', False)])
+    
+    title = f'Structure du tableau: {detected_cells} détectées + {auto_filled_cells} complétées = {len(table_structure)} cellules'
+    ax.set_title(title)
     ax.set_xlabel('Position X (pixels)')
     ax.set_ylabel('Position Y (pixels)')
     ax.grid(True, alpha=0.3)
+    
+    # Légende simple
+    if auto_filled_cells > 0:
+        legend_text = "🔵 Cellules détectées par layout\n⚫ Cellules auto-générées (vides)"
+        ax.text(0.02, 0.98, legend_text, transform=ax.transAxes, fontsize=9, 
+                verticalalignment='top', bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.8))
+    
     plt.tight_layout()
     plt.show()
 
@@ -474,6 +581,29 @@ def plot_final_result(filled_structure: List[TableCell],
 
 # === FONCTION 5 : EXPORT HTML ===
 
+def _escape_html(text: str) -> str:
+    """
+    Échappe les caractères HTML spéciaux pour éviter les problèmes d'encodage.
+    
+    Args:
+        text: Texte à échapper
+        
+    Returns:
+        Texte avec caractères HTML échappés
+    """
+    if not text:
+        return ""
+    
+    # Échapper les caractères HTML de base
+    text = text.replace('&', '&amp;')
+    text = text.replace('<', '&lt;')
+    text = text.replace('>', '&gt;')
+    text = text.replace('"', '&quot;')
+    text = text.replace("'", '&#x27;')
+    
+    return text
+
+
 def export_to_html(filled_structure: List[TableCell], 
                   table_title: str = "Tableau OCR", 
                   table_class: str = "ocr-table",
@@ -514,32 +644,38 @@ def export_to_html(filled_structure: List[TableCell],
 }}
 """ if highlight_merged else ""
     
-    # Générer le HTML
-    html = f"""
-<style>
-.{table_class} {{
-    border-collapse: collapse;
-    width: 100%;
-    margin: 20px 0;
-    font-family: Arial, sans-serif;
-}}
+    # Générer le HTML avec encodage UTF-8
+    html = f"""<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{_escape_html(table_title)}</title>
+    <style>
+        .{table_class} {{
+            border-collapse: collapse;
+            width: 100%;
+            margin: 20px 0;
+            font-family: Arial, sans-serif;
+        }}
 
-.{table_class} th, .{table_class} td {{
-    border: 1px solid #ddd;
-    padding: 8px;
-    text-align: left;
-    vertical-align: top;
-}}
+        .{table_class} th, .{table_class} td {{
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+            vertical-align: top;
+        }}
 
-.{table_class} th {{
-    background-color: #f2f2f2;
-    font-weight: bold;
-}}{merged_cell_style}
-</style>
-
-<div>
-    <h3>{table_title}</h3>
-    <table class="{table_class}">
+        .{table_class} th {{
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }}{merged_cell_style}
+    </style>
+</head>
+<body>
+    <div>
+        <h3>{_escape_html(table_title)}</h3>
+        <table class="{table_class}">
 """
     
     # Trier les cellules par position de grille pour un rendu correct
@@ -594,8 +730,8 @@ def export_to_html(filled_structure: List[TableCell],
                 # Style d'alignement
                 align_style = f' style="text-align: {h_align}; vertical-align: {v_align};"'
                 
-                # Convertir les retours à la ligne en <br>
-                cell_content = cell_at_position.final_text.replace('\n', '<br>')
+                # Échapper et convertir les retours à la ligne en <br>
+                cell_content = _escape_html(cell_at_position.final_text).replace('\n', '<br>')
                 if not cell_content.strip():
                     cell_content = "&nbsp;"
                 
@@ -606,11 +742,170 @@ def export_to_html(filled_structure: List[TableCell],
         
         html += "        </tr>\n"
     
-    html += """    </table>
-</div>
+    html += """        </table>
+    </div>
+</body>
+</html>
 """
     
     return html
+
+
+def save_html_to_file(html_content: str, filename: str = "tableau.html") -> None:
+    """
+    Sauvegarde le contenu HTML dans un fichier avec encodage UTF-8.
+    
+    Args:
+        html_content: Contenu HTML à sauvegarder
+        filename: Nom du fichier (avec extension .html)
+    """
+    try:
+        with open(filename, 'w', encoding='utf-8', newline='') as f:
+            f.write(html_content)
+        print(f"✅ Tableau HTML sauvegardé dans {filename}")
+    except Exception as e:
+        print(f"❌ Erreur lors de la sauvegarde : {e}")
+
+
+def _escape_markdown(text: str) -> str:
+    """
+    Échappe les caractères Markdown spéciaux.
+    
+    Args:
+        text: Texte à échapper
+        
+    Returns:
+        Texte avec caractères Markdown échappés
+    """
+    if not text:
+        return ""
+    
+    # Échapper les caractères Markdown de base
+    text = text.replace('\\', '\\\\')
+    text = text.replace('|', '\\|')
+    text = text.replace('*', '\\*')
+    text = text.replace('_', '\\_')
+    text = text.replace('`', '\\`')
+    text = text.replace('#', '\\#')
+    text = text.replace('[', '\\[')
+    text = text.replace(']', '\\]')
+    text = text.replace('(', '\\(')
+    text = text.replace(')', '\\)')
+    
+    return text
+
+
+def export_to_markdown(filled_structure: List[TableCell], 
+                      table_title: str = "Tableau OCR") -> str:
+    """
+    Exporte la structure en Markdown avec gestion des fusions.
+    
+    Args:
+        filled_structure: Structure avec textes assignés
+        table_title: Titre du tableau
+        
+    Returns:
+        Code Markdown du tableau
+    """
+    if not filled_structure:
+        return f"# {table_title}\n\n*Tableau vide*"
+    
+    # Déterminer la taille de la grille
+    max_row = max(cell.row_start + cell.row_span for cell in filled_structure)
+    max_col = max(cell.col_start + cell.col_span for cell in filled_structure)
+    
+    # Créer une grille de contenu
+    grid_content = [["" for _ in range(max_col)] for _ in range(max_row)]
+    grid_alignment = [["left" for _ in range(max_col)] for _ in range(max_row)]
+    
+    # Remplir la grille
+    for cell in filled_structure:
+        content = _escape_markdown(cell.final_text.strip()) if cell.final_text else ""
+        
+        # Déterminer l'alignement
+        alignment = "left"
+        if cell.texts:
+            first_box = cell.texts[0]['box']
+            box_center_x = (first_box[0] + first_box[2]) / 2
+            cell_center_x = (cell.x1 + cell.x2) / 2
+            cell_width = cell.x2 - cell.x1
+            
+            if box_center_x < cell_center_x - cell_width * 0.15:
+                alignment = "left"
+            elif box_center_x > cell_center_x + cell_width * 0.15:
+                alignment = "right"
+            else:
+                alignment = "center"
+        
+        # Placer le contenu dans la grille
+        for r in range(cell.row_start, cell.row_start + cell.row_span):
+            for c in range(cell.col_start, cell.col_start + cell.col_span):
+                if r < max_row and c < max_col:
+                    if r == cell.row_start and c == cell.col_start:
+                        # Cellule principale : contenu complet
+                        if cell.row_span > 1 or cell.col_span > 1:
+                            grid_content[r][c] = f"{content} `[{cell.row_span}×{cell.col_span}]`"
+                        else:
+                            grid_content[r][c] = content
+                        grid_alignment[r][c] = alignment
+                    else:
+                        # Cellule fusionnée : marquer comme occupée
+                        grid_content[r][c] = "~"  # Marque de fusion
+                        grid_alignment[r][c] = alignment
+    
+    # Générer le Markdown
+    markdown = f"# {_escape_markdown(table_title)}\n\n"
+    
+    # En-tête du tableau
+    header_line = "|"
+    separator_line = "|"
+    for col in range(max_col):
+        header_line += f" Col {col+1} |"
+        # Alignement dans le séparateur
+        if grid_alignment[0][col] == "center":
+            separator_line += ":---:|"
+        elif grid_alignment[0][col] == "right":
+            separator_line += "----:|"
+        else:
+            separator_line += "-----|"
+    
+    markdown += header_line + "\n"
+    markdown += separator_line + "\n"
+    
+    # Lignes du tableau
+    for row in range(max_row):
+        line = "|"
+        for col in range(max_col):
+            content = grid_content[row][col]
+            if content == "~":
+                content = ""  # Cellule fusionnée = vide
+            elif not content:
+                content = " "  # Cellule vide
+            line += f" {content} |"
+        markdown += line + "\n"
+    
+    # Note sur les fusions
+    has_merged = any(cell.row_span > 1 or cell.col_span > 1 for cell in filled_structure)
+    if has_merged:
+        markdown += "\n*Note: Les cellules fusionnées sont marquées avec `[lignes×colonnes]`*\n"
+    
+    return markdown
+
+
+def save_markdown_to_file(markdown_content: str, filename: str = "tableau.md") -> None:
+    """
+    Sauvegarde le contenu Markdown dans un fichier avec encodage UTF-8.
+    
+    Args:
+        markdown_content: Contenu Markdown à sauvegarder
+        filename: Nom du fichier (avec extension .md)
+    """
+    try:
+        with open(filename, 'w', encoding='utf-8', newline='') as f:
+            f.write(markdown_content)
+        print(f"✅ Tableau Markdown sauvegardé dans {filename}")
+    except Exception as e:
+        print(f"❌ Erreur lors de la sauvegarde : {e}")
 
 
 # === FONCTIONS UTILITAIRES ===
@@ -662,8 +957,12 @@ def load_image(image_path: str) -> np.ndarray:
 # 1. Charger les données
 layout_boxes, rec_boxes, rec_texts = load_paddleocr_data('path/to/results.json')
 
-# 2. Traitement complet
-table_structure = extract_table_structure(layout_boxes)
+# 2. Traitement complet avec options
+table_structure = extract_table_structure(
+    layout_boxes,
+    tolerance=10,               # Tolérance pour alignement
+    fill_empty_cells=True       # Compléter automatiquement les cellules vides
+)
 plot_table_structure(table_structure)
 
 # 3. Assignation avec options
@@ -682,6 +981,19 @@ html_output = export_to_html(
 )
 print(html_output)
 
+# 5. Sauvegarder le HTML dans un fichier
+save_html_to_file(html_output, "mon_tableau.html")
+
+# 6. Exporter en Markdown
+markdown_output = export_to_markdown(filled_structure, "Mon Tableau")
+print(markdown_output)
+
+# 7. Sauvegarder le Markdown dans un fichier
+save_markdown_to_file(markdown_output, "mon_tableau.md")
+
 # OU sans couleurs :
 html_simple = export_to_html(filled_structure, highlight_merged=False)
+
+# OU sans complétion automatique :
+table_structure_basic = extract_table_structure(layout_boxes, fill_empty_cells=False)
 """ 
