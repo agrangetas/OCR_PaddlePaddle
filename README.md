@@ -1,282 +1,339 @@
-# 📋 Module OCR Tableaux - Extraction et Export Intelligent
+# 📊 OCR Table Analysis Tool
 
-## 🎯 Vue d'ensemble
+Un module Python avancé pour l'extraction, l'analyse et l'export de tableaux à partir de documents numérisés avec PaddleOCR.
 
-Ce module fournit des fonctions avancées pour l'extraction et l'export de tableaux à partir d'images OCR. Il utilise une approche intelligente en deux temps pour optimiser l'association des textes reconnus aux cellules détectées.
+## 🚀 Fonctionnalités
 
-## 🚀 Fonctionnalités principales
+- **🔍 Extraction automatique** de la structure des tableaux
+- **📝 Assignment intelligent** des textes OCR aux cellules
+- **🧹 Nettoyage automatique** et correction des chevauchements
+- **📏 Espacement intelligent** basé sur les distances réelles
+- **📤 Export HTML/Markdown** avec gestion des fusions de cellules
+- **🎯 Visualisation interactive** de la structure détectée
 
-### 🔧 Construction de grille adaptative
-- **Analyse intelligente** : Détection automatique des lignes et colonnes
-- **Ajustement dynamique** : Expansion automatique de la grille selon les besoins
-- **Optimisation** : Suppression des lignes redondantes
-
-### 🎯 Placement intelligent des textes
-- **Scoring multicritère** : Containment, distance, recouvrement
-- **Ordonnancement spatial** : Tri gauche→droite, haut→bas
-- **Conservation totale** : Aucun texte n'est perdu
-
-### 📊 Export flexible
-- **Markdown** : Avec échappement automatique et options de formatage
-- **HTML** : Avec CSS intégré et gestion des fusions
-- **Statistiques** : Analyse automatique des performances
-
-## 📦 Installation
+## 📋 Prérequis
 
 ```bash
-# Cloner le repository
-git clone <repository-url>
-cd OCR_PaddlePaddle
-
-# Installer les dépendances
-pip install -r requirements.txt
+pip install numpy matplotlib pillow opencv-python
 ```
 
-## 🛠️ Utilisation
-
-### Exemple complet
+## ⚡ Utilisation rapide
 
 ```python
-from src.utils import (
-    build_adaptive_grid_structure,
-    build_composite_cells_advanced_v2,
-    fill_grid_from_composites_simple,
-    export_to_markdown,
-    export_to_html
+from src.utils import *
+
+# 1. Charger les données PaddleOCR
+layout_boxes, rec_boxes, rec_texts = load_paddleocr_data("donnees.json")
+
+# 2. Extraire la structure du tableau
+table_structure = extract_table_structure(layout_boxes, fill_empty_cells=True)
+
+# 3. Assigner les textes OCR
+filled_structure = assign_ocr_to_structure(
+    table_structure, rec_boxes, rec_texts,
+    force_assignment=True,
+    auto_correct_overlaps=True,
+    smart_spacing=True
 )
 
-# Données d'exemple
-cell_boxes = [
-    [10, 10, 100, 50],    # Cellule 1
-    [100, 10, 190, 50],   # Cellule 2
-    [10, 50, 100, 90],    # Cellule 3
-]
+# 4. Exporter en HTML
+html_output = export_to_html(filled_structure)
+save_html_to_file(html_output, "tableau.html")
+```
 
-rec_boxes = [
-    [15, 15, 95, 45],     # Texte 1
-    [105, 15, 185, 45],   # Texte 2
-    [15, 55, 95, 85],     # Texte 3
-]
+## 🔧 Workflow détaillé
 
-rec_texts = ["Nom", "Âge", "Jean"]
+### Étape 1 : Extraction de la structure
 
-# 1. Construction de la grille
-row_lines, col_lines = build_adaptive_grid_structure(
-    cell_boxes, 
-    y_thresh=10, 
-    x_thresh=10, 
-    tolerance=5
+```python
+table_structure = extract_table_structure(
+    layout_boxes,
+    tolerance=10,              # Tolérance d'alignement (pixels)
+    fill_empty_cells=True,     # Compléter les cellules manquantes
+    extend_cells=False         # Étendre les cellules pour combler les espaces
 )
 
-# 2. Placement des textes
-composite_cells = build_composite_cells_advanced_v2(
-    cell_boxes, 
-    rec_boxes, 
-    rec_texts, 
-    row_lines, 
-    col_lines, 
-    tolerance=5
+# Visualiser la structure détectée
+plot_table_structure(table_structure)
+```
+
+**Paramètres :**
+- `tolerance` : Distance maximale pour considérer des lignes comme alignées
+- `fill_empty_cells` : Active la génération automatique de cellules vides
+- `extend_cells` : Active l'extension des cellules pour combler les espaces
+
+### Étape 2 : Assignment des textes OCR
+
+```python
+filled_structure = assign_ocr_to_structure(
+    table_structure, rec_boxes, rec_texts,
+    overlap_threshold=0.5,     # Seuil de recouvrement minimum (0-1)
+    force_assignment=True,     # Forcer l'assignment même sans recouvrement
+    clean_structure=True,      # Nettoyer après l'assignment
+    auto_correct_overlaps=True,# Corriger automatiquement les chevauchements
+    smart_spacing=True,        # Espacement intelligent adaptatif
+    verbose_overlaps=False     # Afficher les détails de détection
 )
 
-# 3. Remplissage de la grille
-n_rows, n_cols = len(row_lines), len(col_lines)
-table = fill_grid_from_composites_simple(
-    composite_cells, 
-    n_rows, 
-    n_cols
+# Visualiser le résultat final
+plot_final_result(filled_structure)
+```
+
+**Paramètres :**
+- `overlap_threshold` : Pourcentage minimum de recouvrement requis (0.0 à 1.0)
+- `force_assignment` : Force l'assignment du texte à la cellule la plus proche
+- `clean_structure` : Active le nettoyage post-assignment
+- `auto_correct_overlaps` : Correction automatique des chevauchements (récursive)
+- `smart_spacing` : Espacement basé sur les distances réelles entre textes
+- `verbose_overlaps` : Active l'affichage détaillé des diagnostics
+
+### Étape 3 : Export et sauvegarde
+
+```python
+# Export HTML avec fusions de cellules
+html_output = export_to_html(
+    filled_structure,
+    table_title="Mon Tableau",
+    highlight_merged=True      # Colorer les cellules fusionnées
+)
+save_html_to_file(html_output, "tableau.html")
+
+# Export Markdown
+markdown_output = export_to_markdown(filled_structure, "Mon Tableau")
+save_markdown_to_file(markdown_output, "tableau.md")
+```
+
+## 🎛️ Paramètres avancés
+
+### Correction automatique des chevauchements
+
+Le système applique plusieurs stratégies dans l'ordre de priorité :
+
+1. **Réduction des cellules vides** : Réduit les cellules vides qui chevauchent des cellules pleines
+2. **Fusion des duplicatas** : Fusionne les cellules quasi-identiques
+3. **Absorption d'inclusions** : Absorbe les cellules complètement incluses
+4. **Résolution de conflits** : Résout les conflits de position de grille
+5. **Redimensionnement** : Ajuste les cellules avec chevauchement partiel
+
+### Espacement intelligent
+
+L'espacement adaptatif calcule automatiquement :
+
+- **Espaces horizontaux** : Basés sur la largeur moyenne des caractères
+- **Lignes verticales** : Basées sur la hauteur moyenne du texte
+- **Adaptation contextuelle** : Ajustement selon la taille et densité de la cellule
+
+```python
+# Exemple avec paramètres personnalisés
+filled_structure = assign_ocr_to_structure(
+    table_structure, rec_boxes, rec_texts,
+    overlap_threshold=0.3,     # Plus permissif
+    force_assignment=True,     
+    clean_structure=True,      
+    auto_correct_overlaps=True,
+    smart_spacing=True,        # Espacement intelligent
+    verbose_overlaps=True      # Mode debug
+)
+```
+
+## 📊 Exemples d'utilisation
+
+### Exemple 1 : Traitement simple
+
+```python
+from src.utils import *
+
+# Charger les données
+layout_boxes, rec_boxes, rec_texts = load_paddleocr_data("data.json")
+
+# Pipeline simple
+table_structure = extract_table_structure(layout_boxes)
+filled_structure = assign_ocr_to_structure(
+    table_structure, rec_boxes, rec_texts,
+    force_assignment=True
 )
 
-# 4. Export
-markdown_table = export_to_markdown(
-    table=table,
-    table_title="Tableau Extrait",
-    include_headers=True
+# Export
+html_output = export_to_html(filled_structure)
+save_html_to_file(html_output, "simple_table.html")
+```
+
+### Exemple 2 : Traitement avancé avec corrections
+
+```python
+from src.utils import *
+
+# Charger les données
+layout_boxes, rec_boxes, rec_texts = load_paddleocr_data("complex_data.json")
+
+# Pipeline avancé
+table_structure = extract_table_structure(
+    layout_boxes,
+    tolerance=15,              # Plus tolérant pour documents complexes
+    fill_empty_cells=True,     # Compléter la grille
+    extend_cells=True          # Étendre les cellules
 )
 
-html_table = export_to_html(
-    composite_cells=composite_cells,
-    n_rows=n_rows,
-    n_cols=n_cols,
-    table_title="Tableau Extrait",
+# Visualiser la structure détectée
+plot_table_structure(table_structure)
+
+# Assignment avec toutes les corrections
+filled_structure = assign_ocr_to_structure(
+    table_structure, rec_boxes, rec_texts,
+    overlap_threshold=0.4,     # Seuil adapté
+    force_assignment=True,     
+    clean_structure=True,      # Nettoyage post-assignment
+    auto_correct_overlaps=True,# Correction automatique
+    smart_spacing=True,        # Espacement intelligent
+    verbose_overlaps=False     # Mode silencieux
+)
+
+# Visualiser le résultat
+plot_final_result(filled_structure)
+
+# Export avec mise en forme
+html_output = export_to_html(
+    filled_structure,
+    table_title="Tableau Complexe",
     highlight_merged=True
 )
+save_html_to_file(html_output, "complex_table.html")
 ```
 
-### Utilisation avancée
+### Exemple 3 : Mode debug
 
 ```python
-# Export Markdown avec informations de fusion
-markdown_debug = export_to_markdown_advanced(
-    composite_cells,
-    n_rows,
-    n_cols,
-    show_merged_info=True,
-    compact_empty=True,
-    table_title="Debug - Fusions visibles"
+from src.utils import *
+
+# Mode debug complet
+filled_structure = assign_ocr_to_structure(
+    table_structure, rec_boxes, rec_texts,
+    overlap_threshold=0.5,
+    force_assignment=True,
+    clean_structure=True,
+    auto_correct_overlaps=True,
+    smart_spacing=True,
+    verbose_overlaps=True      # Affichage détaillé
 )
 
-# Export HTML personnalisé
-html_custom = export_to_html(
-    composite_cells=composite_cells,
-    n_rows=n_rows,
-    n_cols=n_cols,
-    table_title="Tableau Personnalisé",
-    table_class="custom-table",
-    cell_padding=8,
-    highlight_merged=True,
-    include_stats=True
+# Sortie debug :
+# 🔍 Détection des chevauchements entre cellules:
+#   ⚠️  Cellule #12 et #34 se chevauchent (DUPLICATE):
+#       Cellule #12: (100.0,50.0→200.0,100.0) grille(1,2) span(1×1)
+#       ...
+# 🔄 Correction automatique des chevauchements (récursive)...
+#   🔄 Itération 1/5
+#   📊 3 chevauchements détectés à corriger
+#   ...
+```
+
+## 🔧 Fonctions utilitaires
+
+### Chargement des données
+
+```python
+# Charger depuis un fichier JSON PaddleOCR
+layout_boxes, rec_boxes, rec_texts = load_paddleocr_data("donnees.json")
+
+# Charger une image
+image = load_image("document.jpg")
+```
+
+### Visualisation
+
+```python
+# Visualiser la structure détectée
+plot_table_structure(table_structure, figsize=(12, 8))
+
+# Visualiser le résultat final avec textes
+plot_final_result(filled_structure, figsize=(15, 10))
+```
+
+### Nettoyage manuel
+
+```python
+# Nettoyer la structure manuellement
+cleaned_structure = clean_table_structure(
+    table_structure,
+    tolerance=5,               # Tolérance d'alignement
+    verbose_overlaps=False     # Mode silencieux
 )
 ```
 
-## 📚 Documentation API
+## 📈 Structure des données
+
+### Format des cellules
+
+Chaque cellule est représentée par un objet `TableCell` :
+
+```python
+class TableCell:
+    x1, y1, x2, y2     # Coordonnées physiques (pixels)
+    row_start, col_start # Position dans la grille
+    row_span, col_span   # Spans de fusion
+    texts              # Liste des textes OCR assignés
+    final_text         # Texte final ordonné
+    is_auto_filled     # Marqueur cellule auto-générée
+```
+
+### Format d'entrée PaddleOCR
+
+```python
+# layout_boxes : Liste de coordonnées [x1, y1, x2, y2]
+layout_boxes = [[100, 50, 200, 100], [200, 50, 300, 100], ...]
+
+# rec_boxes : Boxes des textes OCR [[x1, y1, x2, y2], ...]
+rec_boxes = [[105, 55, 195, 95], [205, 55, 295, 95], ...]
+
+# rec_texts : Textes correspondants
+rec_texts = ["Texte 1", "Texte 2", ...]
+```
+
+## ⚠️ Notes importantes
+
+1. **Ordre des opérations** : Toujours assigner les textes AVANT le nettoyage
+2. **Chevauchements** : La correction automatique peut prendre plusieurs itérations
+3. **Performance** : L'espacement intelligent est plus lent mais plus précis
+4. **Encodage** : Tous les exports gèrent correctement l'UTF-8
+
+## 🐛 Résolution de problèmes
+
+### Cellules mal détectées
+- Ajuster le paramètre `tolerance` dans `extract_table_structure()`
+- Activer `fill_empty_cells=True` pour combler les trous
+
+### Textes mal assignés
+- Réduire `overlap_threshold` pour être plus permissif
+- Activer `force_assignment=True` pour forcer l'assignment
+
+### Chevauchements persistants
+- Activer `verbose_overlaps=True` pour diagnostiquer
+- La correction automatique résout la plupart des cas
+
+### Espacement incorrect
+- Désactiver `smart_spacing=False` pour revenir au mode basique
+- L'espacement intelligent s'adapte automatiquement aux dimensions
+
+## 📚 API Reference
 
 ### Fonctions principales
 
-#### `build_adaptive_grid_structure()`
-Construit une grille adaptative à partir de boxes de cellules détectées.
+| Fonction | Description | Paramètres clés |
+|----------|-------------|-----------------|
+| `extract_table_structure()` | Extrait la structure du tableau | `tolerance`, `fill_empty_cells` |
+| `assign_ocr_to_structure()` | Assigne les textes aux cellules | `overlap_threshold`, `auto_correct_overlaps` |
+| `export_to_html()` | Export HTML avec rowspan/colspan | `highlight_merged` |
+| `export_to_markdown()` | Export Markdown simple | `table_title` |
 
-**Paramètres :**
-- `cell_box_list` : Liste des boxes `[x_min, y_min, x_max, y_max]`
-- `y_thresh` : Seuil pour regrouper les lignes horizontales (défaut: 10)
-- `x_thresh` : Seuil pour regrouper les lignes verticales (défaut: 10)
-- `tolerance` : Tolérance pour l'épaisseur des traits (défaut: 5)
+### Fonctions utilitaires
 
-**Retourne :** `Tuple[List[float], List[float]]` - (row_lines, col_lines)
+| Fonction | Description |
+|----------|-------------|
+| `load_paddleocr_data()` | Charge les données depuis JSON |
+| `plot_table_structure()` | Visualise la structure détectée |
+| `plot_final_result()` | Visualise le résultat final |
+| `clean_table_structure()` | Nettoyage manuel de la structure |
 
-#### `build_composite_cells_advanced_v2()`
-Associe intelligemment les textes OCR aux cellules détectées.
+---
 
-**Paramètres :**
-- `cell_boxes` : Boxes des cellules de layout
-- `rec_boxes` : Boxes des textes OCR
-- `rec_texts` : Textes reconnus
-- `row_lines`, `col_lines` : Lignes de grille
-- `tolerance` : Tolérance de placement (défaut: 5)
-
-**Retourne :** `List[CompositeCell]` - Liste de tuples (r0, r1, c0, c1, text)
-
-#### `fill_grid_from_composites_simple()`
-Remplit une grille 2D avec conservation totale des textes.
-
-**Paramètres :**
-- `composite_cells` : Liste de cellules composites
-- `n_rows`, `n_cols` : Dimensions de la grille
-
-**Retourne :** `Grid2D` - Grille 2D avec tous les textes placés
-
-#### `export_to_markdown()`
-Export Markdown flexible avec options de formatage.
-
-**Paramètres :**
-- `table` : Grille 2D (optionnel)
-- `composite_cells` : Cellules composites (optionnel)
-- `include_headers` : Inclure les en-têtes (défaut: True)
-- `cell_alignment` : "left", "center", "right" (défaut: "left")
-- `table_title` : Titre optionnel
-
-**Retourne :** `str` - Tableau Markdown formaté
-
-#### `export_to_html()`
-Export HTML professionnel avec CSS intégré.
-
-**Paramètres :**
-- `composite_cells` : Cellules composites (optionnel)
-- `table` : Grille 2D (optionnel)
-- `table_title` : Titre du tableau
-- `highlight_merged` : Surligner les fusions (défaut: True)
-- `include_stats` : Inclure les statistiques (défaut: True)
-
-**Retourne :** `str` - HTML formaté avec CSS
-
-## 🔄 Types de données
-
-### Types principaux
-
-```python
-# Type pour les boxes (rectangles)
-Box = List[float]  # [x_min, y_min, x_max, y_max]
-
-# Type pour les cellules composites
-CompositeCell = Tuple[int, int, int, int, str]  # (r0, r1, c0, c1, text)
-
-# Type pour les grilles 2D
-Grid2D = List[List[str]]
-```
-
-## 🎨 Fonctionnalités avancées
-
-### Conservation totale des textes
-Le module garantit qu'aucun texte OCR n'est perdu en utilisant une stratégie de **combinaison intelligente** plutôt que d'élimination lors des conflits.
-
-### Ordonnancement spatial
-Les textes multiples dans une même cellule sont automatiquement ordonnés selon leur position spatiale :
-- **Vertical** : Haut → Bas
-- **Horizontal** : Gauche → Droite
-
-### Gestion des fusions
-Les cellules fusionnées sont automatiquement détectées et gérées avec :
-- **Marqueurs visuels** pour le debug
-- **Attributs HTML** (colspan, rowspan) pour l'export
-- **Compactage automatique** des zones vides
-
-## 🧪 Tests
-
-```bash
-# Tester les fonctions principales
-python src/test_simple_conservation.py
-
-# Tester la grille adaptative
-python src/test_adaptive_grid.py
-
-# Tester les exports
-python src/exemple_export_final.py
-```
-
-## 📊 Performances
-
-### Métriques typiques
-- **Conservation** : 100% des textes préservés
-- **Compacité** : Réduction de 40-50% de la taille Markdown
-- **Précision** : 95%+ d'association texte-cellule correcte
-
-### Optimisations
-- **Algorithme adaptatif** : O(n log n) pour la construction de grille
-- **Scoring multicritère** : Placement optimal des textes
-- **Mémoire efficace** : Structures de données optimisées
-
-## 🛡️ Gestion d'erreurs
-
-Le module gère automatiquement :
-- **Cellules vides** : Filtrage automatique
-- **Textes non appariés** : Reporting et logging
-- **Dimensions invalides** : Validation et correction
-- **Caractères spéciaux** : Échappement automatique
-
-## 📈 Améliorations futures
-
-### Prochaines versions
-- [ ] Support des tableaux imbriqués
-- [ ] Détection automatique des en-têtes
-- [ ] Export PDF natif
-- [ ] API REST pour usage distant
-
-### Optimisations prévues
-- [ ] Parallélisation des calculs
-- [ ] Cache intelligent pour les grilles
-- [ ] Compression des données intermédiaires
-
-## 🤝 Contribution
-
-Les contributions sont les bienvenues ! Merci de :
-1. Fork le repository
-2. Créer une branche feature
-3. Commiter vos changements
-4. Ouvrir une Pull Request
-
-## 📄 Licence
-
-Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails.
-
-## 🏆 Remerciements
-
-Développé avec l'assistance de Claude AI pour optimiser l'extraction de tableaux OCR. 
+**Développé avec ❤️ pour une analyse de tableaux OCR robuste et intelligente** 
