@@ -9,9 +9,12 @@ Ce module contient uniquement les fonctions essentielles pour :
 4. Visualiser le résultat final  
 5. Exporter en HTML avec rowspan/colspan
 6. Sauvegarder en fichiers HTML/Markdown avec encodage UTF-8
+7. Nettoyer et simplifier la structure pour une grille cohérente
 
 Fonctionnalités avancées :
 - Complétion automatique des cellules vides
+- Extension des cellules pour combler les espaces
+- Nettoyage et simplification de la structure (alignement + fusion)
 - Gestion intelligente de l'alignement des textes
 - Échappement des caractères spéciaux (UTF-8)
 - Options de diagnostic pour les textes non matchés
@@ -21,30 +24,32 @@ Utilisation simple depuis un notebook :
 from src.utils_new import *
 
 # 1. Extraire la structure du tableau (avec complétion automatique des cellules vides)
-table_structure = extract_table_structure(layout_boxes, fill_empty_cells=True)
+table_structure = extract_table_structure(
+    layout_boxes, 
+    fill_empty_cells=True,     # Compléter les cellules vides
+    extend_cells=True          # Étendre les cellules pour combler les espaces
+)
 
-# 2. Visualiser la structure (les cellules auto-générées apparaissent en gris)
+# 2. Visualiser la structure (avec cellules auto-générées en gris)
 plot_table_structure(table_structure)
 
 # 3. Placer les textes OCR (avec option force pour placer tous les textes)
 filled_structure = assign_ocr_to_structure(
-    table_structure, rec_boxes, rec_texts, force_assignment=True
+    table_structure, rec_boxes, rec_texts, 
+    overlap_threshold=0.5,
+    force_assignment=True,     # Forcer l'assignment même sans recouvrement
+    clean_structure=False      # Désactivé par défaut pour éviter les problèmes
 )
 
-# 4. Visualiser le résultat
+# 4. Visualiser le résultat final
 plot_final_result(filled_structure)
 
-# 5. Exporter en HTML (avec ou sans couleurs pour les cellules fusionnées)
+# 5. Exporter en HTML avec couleurs
 html_output = export_to_html(filled_structure, highlight_merged=True)
-
-# 6. Sauvegarder le HTML dans un fichier
 save_html_to_file(html_output, "tableau.html")
 
-# 7. Exporter en Markdown avec alignement et fusions
+# 6. Exporter en Markdown
 markdown_output = export_to_markdown(filled_structure, "Mon Tableau")
-print(markdown_output)
-
-# 8. Sauvegarder le Markdown dans un fichier
 save_markdown_to_file(markdown_output, "tableau.md")
 
 # OU sans couleurs :
@@ -109,12 +114,46 @@ class TableCell:
         box_area = (x2 - x1) * (y2 - y1)
         
         return inter_area / box_area if box_area > 0 else 0.0
+    
+    def add_text(self, text: str, x1: float, y1: float, x2: float, y2: float) -> None:
+        """Ajoute un texte OCR à la cellule"""
+        self.texts.append({
+            'text': text.strip(),
+            'box': [x1, y1, x2, y2],
+            'center': ((x1 + x2) / 2, (y1 + y2) / 2)
+        })
+    
+    def finalize_text(self) -> None:
+        """Finalise le texte de la cellule en ordonnant spatialement les textes"""
+        if self.texts:
+            self.final_text = _order_texts_spatially(self.texts)
+        else:
+            self.final_text = ""
+
+
+def _calculate_overlap(x1: float, y1: float, x2: float, y2: float, 
+                      cell_x1: float, cell_y1: float, cell_x2: float, cell_y2: float) -> float:
+    """Calcule le pourcentage de recouvrement entre une box OCR et une cellule"""
+    # Intersection
+    inter_x1 = max(x1, cell_x1)
+    inter_y1 = max(y1, cell_y1)
+    inter_x2 = min(x2, cell_x2)
+    inter_y2 = min(y2, cell_y2)
+    
+    if inter_x1 >= inter_x2 or inter_y1 >= inter_y2:
+        return 0.0
+    
+    inter_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
+    box_area = (x2 - x1) * (y2 - y1)
+    
+    return inter_area / box_area if box_area > 0 else 0.0
 
 
 # === FONCTION 1 : EXTRAIRE LA STRUCTURE DU TABLEAU ===
 
 def extract_table_structure(layout_boxes: List[Dict], tolerance: float = 10, 
-                            fill_empty_cells: bool = True) -> List[TableCell]:
+                            fill_empty_cells: bool = True,
+                            extend_cells: bool = False) -> List[TableCell]:
     """
     Extrait la structure du tableau à partir des boxes de layout.
     
@@ -122,6 +161,7 @@ def extract_table_structure(layout_boxes: List[Dict], tolerance: float = 10,
         layout_boxes: Liste des boxes de layout (format PaddleOCR)
         tolerance: Tolérance pour détecter les alignements
         fill_empty_cells: Si True, complète automatiquement les espaces vides
+        extend_cells: Si True, étend les cellules pour combler les espaces
         
     Returns:
         Liste des cellules du tableau avec rowspan/colspan
@@ -157,9 +197,14 @@ def extract_table_structure(layout_boxes: List[Dict], tolerance: float = 10,
     # Compléter les espaces vides avec des cellules vides (si demandé)
     if fill_empty_cells:
         complete_cells = _fill_empty_cells(table_cells, row_lines, col_lines)
-        return complete_cells
     else:
-        return table_cells
+        complete_cells = table_cells
+    
+    # Étendre les cellules pour combler les espaces (si demandé)
+    if extend_cells:
+        complete_cells = extend_cells_to_fill_gaps(complete_cells, tolerance=2)
+    
+    return complete_cells
 
 
 def _detect_grid_lines(cells_coords: List[List[float]], direction: str, tolerance: float) -> List[float]:
@@ -263,6 +308,409 @@ def _fill_empty_cells(existing_cells: List[TableCell], row_lines: List[float], c
     return complete_cells
 
 
+def extend_cells_to_fill_gaps(table_cells: List[TableCell], tolerance: float = 2) -> List[TableCell]:
+    """
+    Étend UNIQUEMENT les cellules vides pour combler les espaces.
+    Ne touche pas aux cellules avec du texte pour éviter les décalages.
+    
+    Args:
+        table_cells: Liste des cellules du tableau
+        tolerance: Tolérance pour considérer deux bords comme alignés
+        
+    Returns:
+        Liste des cellules avec espaces comblés
+    """
+    if not table_cells:
+        return table_cells
+    
+    # Copier les cellules pour ne pas modifier les originales
+    extended_cells = []
+    for cell in table_cells:
+        new_cell = TableCell(cell.x1, cell.y1, cell.x2, cell.y2, 
+                           cell.row_start, cell.col_start, 
+                           cell.row_span, cell.col_span)
+        new_cell.texts = cell.texts.copy()
+        new_cell.final_text = cell.final_text
+        new_cell.is_auto_filled = getattr(cell, 'is_auto_filled', False)
+        extended_cells.append(new_cell)
+    
+    # Déterminer les limites du tableau
+    min_x = min(cell.x1 for cell in extended_cells)
+    max_x = max(cell.x2 for cell in extended_cells)
+    min_y = min(cell.y1 for cell in extended_cells)
+    max_y = max(cell.y2 for cell in extended_cells)
+    
+    # Séparer cellules avec texte et cellules vides
+    filled_cells = [cell for cell in extended_cells if cell.final_text.strip()]
+    empty_cells = [cell for cell in extended_cells if not cell.final_text.strip()]
+    
+    print(f"🔧 Extension : {len(filled_cells)} cellules avec texte préservées, {len(empty_cells)} cellules vides étendues")
+    
+    # ÉTENDRE UNIQUEMENT LES CELLULES VIDES
+    for cell in empty_cells:
+        
+        # 1. ÉTENDRE VERS LE HAUT (si pas de cellule au-dessus)
+        cells_above = [c for c in extended_cells if c != cell and 
+                      c.x1 < cell.x2 and c.x2 > cell.x1 and  # chevauchement horizontal
+                      c.y2 <= cell.y1 + tolerance]  # au-dessus ou juste au niveau
+        
+        if cells_above:
+            # Prendre le bas de la cellule la plus proche au-dessus
+            closest_bottom = max(c.y2 for c in cells_above)
+            cell.y1 = closest_bottom
+        else:
+            # Étendre jusqu'au haut du tableau
+            cell.y1 = min_y
+        
+        # 2. ÉTENDRE VERS LA DROITE (si pas de cellule à droite)
+        cells_right = [c for c in extended_cells if c != cell and 
+                      c.y1 < cell.y2 and c.y2 > cell.y1 and  # chevauchement vertical
+                      c.x1 >= cell.x2 - tolerance]  # à droite ou juste au niveau
+        
+        if cells_right:
+            # Prendre le gauche de la cellule la plus proche à droite
+            closest_left = min(c.x1 for c in cells_right)
+            cell.x2 = closest_left
+        else:
+            # Étendre jusqu'au bord droit du tableau
+            cell.x2 = max_x
+        
+        # 3. LIMITER VERS LE BAS (nettoyer les chevauchements)
+        cells_below = [c for c in extended_cells if c != cell and 
+                      c.x1 < cell.x2 and c.x2 > cell.x1 and  # chevauchement horizontal
+                      c.y1 >= cell.y2 - tolerance and  # en dessous ou juste au niveau
+                      c.y1 < cell.y2 + tolerance]  # pas trop loin
+        
+        if cells_below:
+            # Limiter le bas à la cellule la plus proche en dessous
+            closest_top = min(c.y1 for c in cells_below)
+            if closest_top < cell.y2:  # Seulement si on doit réduire
+                cell.y2 = closest_top
+    
+    return extended_cells
+
+
+def clean_table_structure(table_cells: List[TableCell], tolerance: float = 5) -> List[TableCell]:
+    """
+    Nettoie légèrement la structure du tableau pour avoir une grille cohérente.
+    CONSERVATEUR : ajuste les bords à la marge, fusionne UNIQUEMENT les cellules vides.
+    
+    Args:
+        table_cells: Liste des cellules du tableau
+        tolerance: Tolérance pour considérer des bords comme alignés (petite valeur!)
+        
+    Returns:
+        Liste des cellules légèrement nettoyées
+    """
+    if not table_cells:
+        return table_cells
+    
+    # Copier les cellules
+    clean_cells = []
+    for cell in table_cells:
+        new_cell = TableCell(cell.x1, cell.y1, cell.x2, cell.y2, 
+                           cell.row_start, cell.col_start, 
+                           cell.row_span, cell.col_span)
+        new_cell.texts = cell.texts.copy()
+        new_cell.final_text = cell.final_text
+        new_cell.is_auto_filled = getattr(cell, 'is_auto_filled', False)
+        clean_cells.append(new_cell)
+    
+    # 1. ALIGNEMENT LÉGER DES BORDS (seulement quelques pixels)
+    clean_cells = _align_cell_borders_conservative(clean_cells, tolerance)
+    
+    # 2. FUSIONNER UNIQUEMENT LES CELLULES VIDES ADJACENTES
+    clean_cells = _merge_only_empty_cells(clean_cells, tolerance)
+    
+    # 3. RECALCULER LES POSITIONS DE GRILLE (sans modifier les cellules avec texte)
+    clean_cells = _recalculate_grid_positions_conservative(clean_cells, tolerance)
+    
+    # 4. DÉTECTER LES CHEVAUCHEMENTS APRÈS NETTOYAGE
+    print("🔍 Détection des chevauchements après nettoyage...")
+    _detect_overlapping_cells(clean_cells)
+    
+    return clean_cells
+
+
+def _align_cell_borders_conservative(cells: List[TableCell], tolerance: float) -> List[TableCell]:
+    """Aligne LÉGÈREMENT les bords des cellules - seulement ajustements mineurs."""
+    
+    # Séparer cellules avec texte et cellules vides
+    filled_cells = [cell for cell in cells if cell.final_text.strip()]
+    empty_cells = [cell for cell in cells if not cell.final_text.strip()]
+    
+    # Pour les cellules avec texte : alignement très conservateur
+    if filled_cells:
+        # Collecter les positions des cellules AVEC TEXTE uniquement
+        x_positions = []
+        y_positions = []
+        for cell in filled_cells:
+            x_positions.extend([cell.x1, cell.x2])
+            y_positions.extend([cell.y1, cell.y2])
+        
+        # Grouper avec une tolérance plus petite pour les cellules pleines
+        unique_x = _group_similar_values(x_positions, tolerance)
+        unique_y = _group_similar_values(y_positions, tolerance)
+        
+        # Ajustement LÉGER pour les cellules avec texte
+        for cell in filled_cells:
+            old_x1, old_x2 = cell.x1, cell.x2
+            old_y1, old_y2 = cell.y1, cell.y2
+            
+            new_x1 = _find_closest_value(cell.x1, unique_x)
+            new_x2 = _find_closest_value(cell.x2, unique_x)
+            new_y1 = _find_closest_value(cell.y1, unique_y)
+            new_y2 = _find_closest_value(cell.y2, unique_y)
+            
+            # Appliquer SEULEMENT si le changement est vraiment petit
+            if abs(new_x1 - old_x1) <= tolerance:
+                cell.x1 = new_x1
+            if abs(new_x2 - old_x2) <= tolerance:
+                cell.x2 = new_x2
+            if abs(new_y1 - old_y1) <= tolerance:
+                cell.y1 = new_y1
+            if abs(new_y2 - old_y2) <= tolerance:
+                cell.y2 = new_y2
+    
+    # Pour les cellules vides : alignement plus libre
+    if empty_cells and filled_cells:
+        # Aligner les cellules vides sur les cellules pleines
+        for empty_cell in empty_cells:
+            # Chercher la meilleure position par rapport aux cellules pleines
+            for filled_cell in filled_cells:
+                # Alignement horizontal si proche
+                if abs(empty_cell.x1 - filled_cell.x1) <= tolerance:
+                    empty_cell.x1 = filled_cell.x1
+                if abs(empty_cell.x2 - filled_cell.x2) <= tolerance:
+                    empty_cell.x2 = filled_cell.x2
+                    
+                # Alignement vertical si proche
+                if abs(empty_cell.y1 - filled_cell.y1) <= tolerance:
+                    empty_cell.y1 = filled_cell.y1
+                if abs(empty_cell.y2 - filled_cell.y2) <= tolerance:
+                    empty_cell.y2 = filled_cell.y2
+    
+    return cells
+
+
+def _merge_only_empty_cells(cells: List[TableCell], tolerance: float) -> List[TableCell]:
+    """Fusionne UNIQUEMENT les cellules vides adjacentes - ne touche pas aux cellules avec texte."""
+    
+    # Séparer cellules vides et pleines
+    empty_cells = [cell for cell in cells if not cell.final_text.strip()]
+    filled_cells = [cell for cell in cells if cell.final_text.strip()]
+    
+    if not empty_cells:
+        return cells
+    
+    print(f"🔄 Fusion de {len(empty_cells)} cellules vides (préservation de {len(filled_cells)} cellules avec texte)")
+    
+    # Fusionner SEULEMENT les cellules vides
+    merged_empty = _merge_horizontally(empty_cells, tolerance)
+    merged_empty = _merge_vertically(merged_empty, tolerance)
+    
+    print(f"✅ Résultat : {len(merged_empty)} cellules vides après fusion")
+    
+    return filled_cells + merged_empty
+
+
+def _recalculate_grid_positions_conservative(cells: List[TableCell], tolerance: float) -> List[TableCell]:
+    """Recalcule les positions de grille de manière conservative - préserve la structure existante."""
+    if not cells:
+        return cells
+    
+    # Utiliser TOUTES les cellules pour recréer la grille
+    x_positions = []
+    y_positions = []
+    for cell in cells:
+        x_positions.extend([cell.x1, cell.x2])
+        y_positions.extend([cell.y1, cell.y2])
+    
+    col_lines = sorted(set(_group_similar_values(x_positions, tolerance)))
+    row_lines = sorted(set(_group_similar_values(y_positions, tolerance)))
+    
+    # Recalculer les positions de grille pour TOUTES les cellules
+    for cell in cells:
+        # Trouver les indices de grille les plus proches
+        try:
+            row_start = row_lines.index(_find_closest_value(cell.y1, row_lines))
+            row_end = row_lines.index(_find_closest_value(cell.y2, row_lines))
+            col_start = col_lines.index(_find_closest_value(cell.x1, col_lines))
+            col_end = col_lines.index(_find_closest_value(cell.x2, col_lines))
+            
+            # Mettre à jour les propriétés de grille
+            cell.row_start = row_start
+            cell.col_start = col_start
+            cell.row_span = max(1, row_end - row_start)  # Au moins 1
+            cell.col_span = max(1, col_end - col_start)  # Au moins 1
+        except (ValueError, IndexError):
+            # En cas de problème, garder les valeurs actuelles
+            pass
+    
+    return cells
+
+
+def _group_similar_values(values: list, tolerance: float) -> list:
+    """Groupe les valeurs similaires et retourne les moyennes."""
+    if not values:
+        return []
+    
+    sorted_values = sorted(set(values))
+    groups = []
+    current_group = [sorted_values[0]]
+    
+    for value in sorted_values[1:]:
+        if value - current_group[-1] <= tolerance:
+            current_group.append(value)
+        else:
+            # Finir le groupe actuel et en commencer un nouveau
+            groups.append(sum(current_group) / len(current_group))
+            current_group = [value]
+    
+    # Ajouter le dernier groupe
+    groups.append(sum(current_group) / len(current_group))
+    
+    return groups
+
+
+def _find_closest_value(target: float, values: list) -> float:
+    """Trouve la valeur la plus proche dans une liste."""
+    return min(values, key=lambda x: abs(x - target))
+
+
+def _merge_horizontally(cells: List[TableCell], tolerance: float) -> List[TableCell]:
+    """Fusionne les cellules vides adjacentes horizontalement."""
+    if len(cells) <= 1:
+        return cells
+    
+    # Trier par ligne puis par colonne
+    sorted_cells = sorted(cells, key=lambda c: (c.y1, c.x1))
+    merged = []
+    
+    i = 0
+    while i < len(sorted_cells):
+        current = sorted_cells[i]
+        
+        # Chercher les cellules à fusionner à droite
+        j = i + 1
+        while j < len(sorted_cells):
+            next_cell = sorted_cells[j]
+            
+            # Vérifier si on peut fusionner (même ligne, côte à côte)
+            if (abs(current.y1 - next_cell.y1) <= tolerance and 
+                abs(current.y2 - next_cell.y2) <= tolerance and
+                abs(current.x2 - next_cell.x1) <= tolerance):
+                
+                # Fusionner : étendre current vers la droite
+                current.x2 = next_cell.x2
+                # Réinitialiser les propriétés de grille - elles seront recalculées
+                current.row_span = 1
+                current.col_span = 1
+                j += 1
+            else:
+                break
+        
+        merged.append(current)
+        i = j
+    
+    return merged
+
+
+def _merge_vertically(cells: List[TableCell], tolerance: float) -> List[TableCell]:
+    """Fusionne les cellules vides adjacentes verticalement."""
+    if len(cells) <= 1:
+        return cells
+    
+    # Trier par colonne puis par ligne
+    sorted_cells = sorted(cells, key=lambda c: (c.x1, c.y1))
+    merged = []
+    
+    i = 0
+    while i < len(sorted_cells):
+        current = sorted_cells[i]
+        
+        # Chercher les cellules à fusionner vers le bas
+        j = i + 1
+        while j < len(sorted_cells):
+            next_cell = sorted_cells[j]
+            
+            # Vérifier si on peut fusionner (même colonne, empilées)
+            if (abs(current.x1 - next_cell.x1) <= tolerance and 
+                abs(current.x2 - next_cell.x2) <= tolerance and
+                abs(current.y2 - next_cell.y1) <= tolerance):
+                
+                # Fusionner : étendre current vers le bas
+                current.y2 = next_cell.y2
+                # Réinitialiser les propriétés de grille - elles seront recalculées
+                current.row_span = 1
+                current.col_span = 1
+                j += 1
+            else:
+                break
+        
+        merged.append(current)
+        i = j
+    
+    return merged
+
+
+def _detect_overlapping_cells(table_cells: List[TableCell]) -> None:
+    """
+    Détecte et affiche les cellules qui se chevauchent.
+    
+    Args:
+        table_cells: Liste des cellules du tableau
+    """
+    print("🔍 Détection des chevauchements entre cellules:")
+    overlaps_found = False
+    
+    for i in range(len(table_cells)):
+        for j in range(i + 1, len(table_cells)):
+            cell1 = table_cells[i]
+            cell2 = table_cells[j]
+            
+            # Vérifier si les cellules se chevauchent
+            if (cell1.x1 < cell2.x2 and cell1.x2 > cell2.x1 and
+                cell1.y1 < cell2.y2 and cell1.y2 > cell2.y1):
+                
+                # Calculer la zone d'intersection
+                inter_x1 = max(cell1.x1, cell2.x1)
+                inter_y1 = max(cell1.y1, cell2.y1)
+                inter_x2 = min(cell1.x2, cell2.x2)
+                inter_y2 = min(cell1.y2, cell2.y2)
+                
+                inter_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
+                cell1_area = cell1.area()
+                cell2_area = cell2.area()
+                
+                overlap_pct_cell1 = (inter_area / cell1_area) * 100 if cell1_area > 0 else 0
+                overlap_pct_cell2 = (inter_area / cell2_area) * 100 if cell2_area > 0 else 0
+                
+                print(f"  ⚠️  Cellule #{i} et #{j} se chevauchent:")
+                print(f"      Cellule #{i}: ({cell1.x1:.1f},{cell1.y1:.1f}→{cell1.x2:.1f},{cell1.y2:.1f}) "
+                      f"grille({cell1.row_start},{cell1.col_start}) span({cell1.row_span}×{cell1.col_span})")
+                print(f"      Cellule #{j}: ({cell2.x1:.1f},{cell2.y1:.1f}→{cell2.x2:.1f},{cell2.y2:.1f}) "
+                      f"grille({cell2.row_start},{cell2.col_start}) span({cell2.row_span}×{cell2.col_span})")
+                print(f"      Zone d'intersection: ({inter_x1:.1f},{inter_y1:.1f}→{inter_x2:.1f},{inter_y2:.1f})")
+                print(f"      Pourcentage de chevauchement: {overlap_pct_cell1:.1f}% pour #{i}, {overlap_pct_cell2:.1f}% pour #{j}")
+                
+                # Suggérer une possible cause
+                if abs(cell1.x1 - cell2.x1) < 5 and abs(cell1.y1 - cell2.y1) < 5:
+                    print(f"      💡 Possible cause: Cellules quasi-identiques (doublons?)")
+                elif cell1.row_start == cell2.row_start and cell1.col_start == cell2.col_start:
+                    print(f"      💡 Possible cause: Même position de grille -> fusion nécessaire")
+                elif overlap_pct_cell1 > 80 or overlap_pct_cell2 > 80:
+                    print(f"      💡 Possible cause: Chevauchement majeur -> révision des coordonnées")
+                
+                print()
+                overlaps_found = True
+    
+    if not overlaps_found:
+        print("  ✅ Aucun chevauchement détecté")
+    
+    print()
+
+
 # === FONCTION 2 : VISUALISER LA STRUCTURE ===
 
 def plot_table_structure(table_structure: List[TableCell], 
@@ -353,110 +801,85 @@ def plot_table_structure(table_structure: List[TableCell],
 # === FONCTION 3 : PLACER LES TEXTES OCR ===
 
 def assign_ocr_to_structure(table_structure: List[TableCell], 
-                          rec_boxes: List[List[float]], 
-                          rec_texts: List[str],
-                          overlap_threshold: float = 0.1,
-                          force_assignment: bool = False) -> List[TableCell]:
+                            rec_boxes: List[List[float]], 
+                            rec_texts: List[str], 
+                            overlap_threshold: float = 0.5,
+                            force_assignment: bool = False,
+                            clean_structure: bool = False) -> List[TableCell]:
     """
-    Place les textes OCR dans les cellules du tableau.
+    Assigne les textes OCR aux cellules du tableau.
     
     Args:
-        table_structure: Structure du tableau
-        rec_boxes: Boxes des textes OCR [x1, y1, x2, y2]
-        rec_texts: Textes correspondants
-        overlap_threshold: Seuil de recouvrement minimal
-        force_assignment: Si True, place TOUS les textes même sans recouvrement (par centre)
+        table_structure: Structure du tableau (cellules)
+        rec_boxes: Boxes des textes OCR
+        rec_texts: Textes OCR correspondants
+        overlap_threshold: Seuil de recouvrement minimum
+        force_assignment: Si True, force l'assignment même sans recouvrement
+        clean_structure: Si True, nettoie la structure APRÈS l'assignment
         
     Returns:
-        Structure du tableau avec textes assignés
+        Structure avec textes assignés
     """
-    # Copier la structure pour ne pas modifier l'originale
-    filled_structure = [TableCell(cell.x1, cell.y1, cell.x2, cell.y2, 
-                                 cell.row_start, cell.col_start, 
-                                 cell.row_span, cell.col_span) 
-                       for cell in table_structure]
+    if not table_structure or not rec_boxes or not rec_texts:
+        return table_structure
     
-    # ÉTAPE 1 : Liaison des textes OCR aux cellules
-    used_texts = set()
+    # Copier la structure pour ne pas modifier l'original
+    filled_structure = []
+    for cell in table_structure:
+        new_cell = TableCell(cell.x1, cell.y1, cell.x2, cell.y2, 
+                           cell.row_start, cell.col_start, 
+                           cell.row_span, cell.col_span)
+        new_cell.texts = cell.texts.copy()
+        new_cell.final_text = cell.final_text
+        new_cell.is_auto_filled = getattr(cell, 'is_auto_filled', False)
+        filled_structure.append(new_cell)
     
-    for text_idx, (rec_box, rec_text) in enumerate(zip(rec_boxes, rec_texts)):
-        if not rec_text.strip() or text_idx in used_texts:
+    # Suivre quels textes ont été assignés
+    assigned_texts = set()
+    
+    # Pour chaque text box, trouver la meilleure cellule
+    for i, (text_box, text_content) in enumerate(zip(rec_boxes, rec_texts)):
+        if i in assigned_texts:
             continue
             
+        text_x1, text_y1, text_x2, text_y2 = text_box
         best_cell = None
         best_overlap = 0
-        all_overlaps = []
         
         # Trouver la cellule avec le meilleur recouvrement
         for cell in filled_structure:
-            overlap = cell.overlap_with_box(rec_box)
-            all_overlaps.append(overlap)
-            if overlap > best_overlap and overlap >= overlap_threshold:
+            overlap = _calculate_overlap(text_x1, text_y1, text_x2, text_y2, 
+                                       cell.x1, cell.y1, cell.x2, cell.y2)
+            if overlap > best_overlap:
                 best_overlap = overlap
                 best_cell = cell
         
-        # Assigner le texte à la meilleure cellule
-        if best_cell is not None:
-            best_cell.texts.append({
-                'text': rec_text.strip(),
-                'box': rec_box,
-                'center': ((rec_box[0] + rec_box[2]) / 2, (rec_box[1] + rec_box[3]) / 2)
-            })
-            used_texts.add(text_idx)
+        # Assigner le texte si le recouvrement est suffisant
+        if best_cell and best_overlap >= overlap_threshold:
+            best_cell.add_text(text_content, text_x1, text_y1, text_x2, text_y2)
+            assigned_texts.add(i)
+        elif force_assignment and best_cell:
+            # Mode force : assigner même sans recouvrement suffisant
+            best_cell.add_text(text_content, text_x1, text_y1, text_x2, text_y2)
+            assigned_texts.add(i)
         else:
-            # DIAGNOSTIC : Texte non matché
-            max_overlap = max(all_overlaps) if all_overlaps else 0
-            box_center = ((rec_box[0] + rec_box[2]) / 2, (rec_box[1] + rec_box[3]) / 2)
-            box_size = (rec_box[2] - rec_box[0], rec_box[3] - rec_box[1])
-            
-            print(f"❌ TEXTE NON MATCHÉ: '{rec_text.strip()}'")
-            print(f"   📦 Box: {rec_box} | Centre: {box_center} | Taille: {box_size}")
-            print(f"   📊 Meilleur recouvrement: {max_overlap:.3f} (seuil: {overlap_threshold})")
-            
-            if max_overlap > 0:
-                print(f"   🔍 Raison: Recouvrement {max_overlap:.3f} < seuil {overlap_threshold}")
-            else:
-                print(f"   🔍 Raison: Aucun recouvrement avec les cellules du tableau")
-            
-            # OPTION FORCE : Placer par centre de la box
-            if force_assignment:
-                # Trouver la cellule qui contient le centre de la box de texte
-                target_cell = None
-                for cell in filled_structure:
-                    if (cell.x1 <= box_center[0] <= cell.x2 and 
-                        cell.y1 <= box_center[1] <= cell.y2):
-                        target_cell = cell
-                        break
-                
-                if target_cell:
-                    target_cell.texts.append({
-                        'text': rec_text.strip(),
-                        'box': rec_box,
-                        'center': box_center
-                    })
-                    used_texts.add(text_idx)
-                    print(f"   🔧 FORCE: Placé dans cellule ({target_cell.row_start},{target_cell.col_start}) par centre")
-                else:
-                    print(f"   🔧 FORCE: Centre hors de toutes les cellules - texte ignoré")
-            else:
-                # Vérifier si le texte est proche d'une cellule
-                min_distance = float('inf')
-                closest_cell = None
-                for cell in filled_structure:
-                    cell_center = cell.center()
-                    distance = ((box_center[0] - cell_center[0])**2 + (box_center[1] - cell_center[1])**2)**0.5
-                    if distance < min_distance:
-                        min_distance = distance
-                        closest_cell = cell
-                
-                if closest_cell:
-                    print(f"   📍 Cellule la plus proche: centre {closest_cell.center()}, distance: {min_distance:.1f}px")
-            print()
+            # Texte non assigné - diagnostic
+            print(f"⚠️  Texte non assigné: '{text_content}' (recouvrement: {best_overlap:.2f} < {overlap_threshold})")
+            if best_cell:
+                print(f"    Meilleure cellule: ({best_cell.x1}, {best_cell.y1}) -> ({best_cell.x2}, {best_cell.y2})")
     
-    # ÉTAPE 2 : Ordonnancement spatial des textes dans chaque cellule
+    # Finaliser les textes dans chaque cellule
     for cell in filled_structure:
-        if cell.texts:
-            cell.final_text = _order_texts_spatially(cell.texts)
+        cell.finalize_text()
+    
+    # Nettoyer la structure APRÈS l'assignment des textes (si demandé)
+    if clean_structure:
+        print("🧹 Nettoyage de la structure APRÈS assignment des textes...")
+        filled_structure = clean_table_structure(filled_structure, tolerance=5)
+    
+    # Détecter les chevauchements sur la version finale de la grille
+    print("🔍 Détection des chevauchements sur la version finale...")
+    _detect_overlapping_cells(filled_structure)
     
     return filled_structure
 
@@ -536,7 +959,7 @@ def plot_final_result(filled_structure: List[TableCell],
     ax.set_facecolor('white')
     
     # Dessiner chaque cellule avec son contenu
-    for cell in filled_structure:
+    for i, cell in enumerate(filled_structure):
         # Rectangle de la cellule
         if cell.final_text.strip():
             color = 'green'
@@ -556,7 +979,13 @@ def plot_final_result(filled_structure: List[TableCell],
         )
         ax.add_patch(rect)
         
-        # Texte de la cellule
+        # Afficher l'indice de la cellule dans le coin supérieur gauche
+        ax.text(cell.x1 + 5, cell.y1 + 15, f"#{i}", 
+                ha='left', va='top', 
+                fontsize=8, color='red', fontweight='bold',
+                bbox=dict(boxstyle="round,pad=0.2", facecolor='white', alpha=0.8))
+        
+        # Texte de la cellule au centre
         if cell.final_text.strip():
             center_x, center_y = cell.center()
             # Limiter la longueur du texte affiché
@@ -694,6 +1123,9 @@ def export_to_html(filled_structure: List[TableCell],
                     break
             
             if cell_at_position:
+                # Trouver l'indice de cette cellule dans la liste originale
+                cell_index = filled_structure.index(cell_at_position)
+                
                 # Générer la cellule avec rowspan/colspan
                 cell_class = "merged-cell" if highlight_merged and (cell_at_position.row_span > 1 or cell_at_position.col_span > 1) else ""
                 rowspan_attr = f' rowspan="{cell_at_position.row_span}"' if cell_at_position.row_span > 1 else ""
@@ -730,12 +1162,18 @@ def export_to_html(filled_structure: List[TableCell],
                 # Style d'alignement
                 align_style = f' style="text-align: {h_align}; vertical-align: {v_align};"'
                 
+                # Ajouter l'identifiant de la cellule en petit dans le coin
+                cell_id = f'<span style="font-size: 10px; color: #999; float: right;">#{cell_index}</span>'
+                
                 # Échapper et convertir les retours à la ligne en <br>
                 cell_content = _escape_html(cell_at_position.final_text).replace('\n', '<br>')
                 if not cell_content.strip():
                     cell_content = "&nbsp;"
                 
-                html += f'            <td class="{cell_class}"{rowspan_attr}{colspan_attr}{align_style}>{cell_content}</td>\n'
+                # Combiner l'identifiant avec le contenu
+                final_content = f'{cell_id}{cell_content}'
+                
+                html += f'            <td class="{cell_class}"{rowspan_attr}{colspan_attr}{align_style}>{final_content}</td>\n'
             elif not grid_occupied[row][col]:
                 # Cellule vide non occupée par un span
                 html += f'            <td>&nbsp;</td>\n'
@@ -961,19 +1399,26 @@ layout_boxes, rec_boxes, rec_texts = load_paddleocr_data('path/to/results.json')
 table_structure = extract_table_structure(
     layout_boxes,
     tolerance=10,               # Tolérance pour alignement
-    fill_empty_cells=True       # Compléter automatiquement les cellules vides
+    fill_empty_cells=True,      # Compléter automatiquement les cellules vides
+    extend_cells=True,          # Étendre les cellules pour combler les espaces
+    clean_structure=False       # Désactivé par défaut pour éviter les problèmes
 )
+
+# 3. Visualiser la structure (avec cellules auto-générées en gris)
 plot_table_structure(table_structure)
 
-# 3. Assignation avec options
+# 4. Assigner les textes OCR avec nettoyage
 filled_structure = assign_ocr_to_structure(
-    table_structure, rec_boxes, rec_texts,
-    overlap_threshold=0.1,        # Seuil normal
-    force_assignment=True         # Force placement de TOUS les textes
+    table_structure, rec_boxes, rec_texts, 
+    overlap_threshold=0.5,
+    force_assignment=True,     # Forcer l'assignment même sans recouvrement
+    clean_structure=False      # Désactivé par défaut pour éviter les problèmes
 )
+
+# 5. Visualiser le résultat final
 plot_final_result(filled_structure)
 
-# 4. Export HTML avec options
+# 6. Exporter en HTML avec couleurs
 html_output = export_to_html(
     filled_structure, 
     "Mon Tableau",
@@ -981,14 +1426,14 @@ html_output = export_to_html(
 )
 print(html_output)
 
-# 5. Sauvegarder le HTML dans un fichier
+# 7. Sauvegarder le HTML dans un fichier
 save_html_to_file(html_output, "mon_tableau.html")
 
-# 6. Exporter en Markdown
+# 8. Exporter en Markdown
 markdown_output = export_to_markdown(filled_structure, "Mon Tableau")
 print(markdown_output)
 
-# 7. Sauvegarder le Markdown dans un fichier
+# 9. Sauvegarder le Markdown dans un fichier
 save_markdown_to_file(markdown_output, "mon_tableau.md")
 
 # OU sans couleurs :
@@ -996,4 +1441,11 @@ html_simple = export_to_html(filled_structure, highlight_merged=False)
 
 # OU sans complétion automatique :
 table_structure_basic = extract_table_structure(layout_boxes, fill_empty_cells=False)
+
+# OU pour étendre les cellules sans les compléter automatiquement :
+table_structure_extended = extract_table_structure(layout_boxes, extend_cells=True, fill_empty_cells=False)
+
+# OU pour nettoyer la structure séparément :
+table_structure = extract_table_structure(layout_boxes, fill_empty_cells=True)
+clean_structure = clean_table_structure(table_structure)
 """ 
