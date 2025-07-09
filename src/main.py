@@ -4,7 +4,7 @@ from paddleocr import PPStructureV3
 print("✅ Import réussi")
 
 print("🔄 Initialisation du pipeline...")
-pipeline = PPStructureV3(layout_detection_model_name="PP-DocLayout-L")
+pipeline = PPStructureV3(layout_detection_model_name="PP-DocLayout-L")#PP-StructureLayout")#"PP-DocLayout-L")
 print("✅ Pipeline initialisé avec succès")
 
 import gc
