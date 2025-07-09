@@ -1,0 +1,11 @@
+{
+  "label": "table_title",
+  "bbox": [
+    144,
+    107,
+    267,
+    118
+  ],
+  "image_crop": "output/tableau2-1_png/crops/table_title/table_title_0_2.jpg",
+  "rec_texts": ""
+}

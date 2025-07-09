@@ -1,0 +1,11 @@
+{
+  "label": "header",
+  "bbox": [
+    584,
+    38,
+    678,
+    47
+  ],
+  "image_crop": "output/tableau1-1_png/crops/header/header_0_0.jpg",
+  "rec_texts": ""
+}

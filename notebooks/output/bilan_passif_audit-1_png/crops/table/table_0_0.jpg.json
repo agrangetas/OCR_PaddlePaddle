@@ -1,0 +1,11 @@
+{
+  "label": "table",
+  "bbox": [
+    60,
+    160,
+    683,
+    920
+  ],
+  "image_crop": "output/bilan_passif_audit-1_png/crops/table/table_0_0.jpg",
+  "rec_texts": ""
+}

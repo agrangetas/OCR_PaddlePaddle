@@ -1,3 +1,29 @@
+# === DÉPENDANCES PRINCIPALES ===
+numpy>=1.21.0
+opencv-python>=4.5.0
+Pillow>=8.3.0
+matplotlib>=3.5.0
+
+# === DÉPENDANCES OPTIONNELLES ===
+# Pour Jupyter et IPython
+ipython>=7.0.0
+jupyter>=1.0.0
+
+# === DÉPENDANCES DE DÉVELOPPEMENT ===
+# Pour les types et la documentation
+typing-extensions>=4.0.0
+pydantic>=1.8.0
+
+# === DÉPENDANCES OCR ===
+# PaddlePaddle (optionnel - dépend de l'environnement)
+# paddlepaddle>=2.0.0
+# paddleocr>=2.0.0
+
+# === DÉPENDANCES SYSTÈME ===
+# Pour les tests et le debug
+pytest>=6.0.0
+pytest-cov>=2.0.0
+
 # Dépendances pour la gestion de base de données PostgreSQL
 psycopg2-binary==2.9.7
 

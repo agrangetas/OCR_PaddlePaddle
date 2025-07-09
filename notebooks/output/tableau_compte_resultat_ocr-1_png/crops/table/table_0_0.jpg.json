@@ -1,0 +1,11 @@
+{
+  "label": "table",
+  "bbox": [
+    41,
+    127,
+    720,
+    925
+  ],
+  "image_crop": "output/tableau_compte_resultat_ocr-1_png/crops/table/table_0_0.jpg",
+  "rec_texts": ""
+}
